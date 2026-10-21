@@ -2381,7 +2381,13 @@ async def download_item(
             data = f'data:{media_type};base64,{data}'
         return DownloadedItem[str](data=data, data_type=data_type)
     elif data_format == 'text':
-        return DownloadedItem[str](data=data.decode('utf-8'), data_type=data_type)
+        # Read the text in the charset the response declares, e.g. a Latin-1 or UTF-16 file; without one, as UTF-8
+        encoding = response.charset_encoding or 'utf-8'
+        try:
+            text = data.decode(encoding)
+        except LookupError:
+            text = data.decode('utf-8')
+        return DownloadedItem[str](data=text, data_type=data_type)
     else:
         return DownloadedItem[bytes](data=data, data_type=data_type)
 

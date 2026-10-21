@@ -83,6 +83,40 @@ async def test_download_item_rejects_oversized_body(
         await download_item(url, data_format='bytes')
 
 
+@pytest.mark.parametrize(
+    ('content_type', 'content', 'expected'),
+    (
+        pytest.param(
+            'text/plain; charset=iso-8859-1', 'Grüße aus Köln'.encode('latin-1'), 'Grüße aus Köln', id='latin-1'
+        ),
+        pytest.param(
+            'text/plain; charset="windows-1252"', '“Quoted” – 5 €'.encode('cp1252'), '“Quoted” – 5 €', id='cp1252'
+        ),
+        pytest.param('text/plain; charset=UTF-16', 'UTF-16 text'.encode('utf-16'), 'UTF-16 text', id='utf-16'),
+        pytest.param('text/plain', 'Grüße'.encode(), 'Grüße', id='no-charset'),
+        pytest.param('text/plain; charset=unknown-charset', 'Grüße'.encode(), 'Grüße', id='unknown-charset'),
+    ),
+)
+async def test_download_item_text_uses_declared_charset(
+    content_type: str, content: bytes, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Text is decoded with the charset of the response's content type, and as UTF-8 without a usable one."""
+
+    def handle_request(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, content=content, headers={'content-type': content_type}, request=request)
+
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(handle_request))
+
+    def create_http_client(*, timeout: int) -> httpx2.AsyncClient:
+        return http_client
+
+    monkeypatch.setattr('pydantic_ai._ssrf.create_async_httpx2_client', create_http_client)
+
+    downloaded_item = await download_item(DocumentUrl(url='https://93.184.215.14/notes.txt'), data_format='text')
+    assert downloaded_item['data'] == expected
+    assert downloaded_item['data_type'] == 'text/plain'
+
+
 @pytest.mark.vcr()
 async def test_download_item_application_octet_stream(disable_ssrf_protection_for_vcr: None) -> None:
     downloaded_item = await download_item(
